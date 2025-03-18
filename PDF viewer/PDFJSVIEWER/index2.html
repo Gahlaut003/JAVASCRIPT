@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <link rel="stylesheet" href="./web/viewer.css">
+  <style>
+    /* Custom CSS for thumbnail sidebar and toolbar */
+    #container {
+      display: flex;
+      flex-direction: row;
+      height: 100vh; /* Set container height to viewport height */
+    }
+
+    .pdf-viewer-container {
+      max-width: 800px;
+      margin: 20px auto;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      background-color: #f1f1f1;
+    }
+
+    #toolbar {
+      display: flex;
+      flex-grow: 0;
+      width: 100%; /* Set toolbar width to 100% */
+      background-color: #ddd; /* Example background color */
+      padding: 10px;
+      box-sizing: border-box;
+      align-items: center;
+    }
+
+    #toolbar button {
+      margin-right: 10px;
+      padding: 5px 10px;
+      border: none;
+      border-radius: 4px;
+      background-color: #f9f9f9;
+      cursor: pointer;
+    }
+
+    #toolbar span {
+      margin-left: auto;
+    }
+
+    #viewer {
+      flex: 1;
+      overflow: auto;
+      overflow-x: hidden; /* Hide horizontal scrollbar */
+      padding: 10px;
+      box-sizing: border-box;
+      display: flex;
+      flex-wrap: wrap;
+    }
+
+    #sidebar {
+      width: 200px;
+      background-color: #f1f1f1;
+      padding: 10px;
+      overflow-y: auto;
+      overflow-x: hidden;
+      height: 100%; /* Set sidebar height to 100% */
+    }
+
+    #thumbnail-list {
+      list-style-type: none;
+      padding: 0;
+      margin: 0;
+    }
+
+    #thumbnail-list li {
+      margin-bottom: 10px;
+      cursor: pointer;
+      padding: 5px;
+      background-color: #ddd;
+      border-radius: 4px;
+    }
+
+    #thumbnail-list li:hover {
+      background-color: #ccc;
+    }
+
+    #pdf-container {
+      max-width: 100%;
+      height: auto;
+    }
+
+    canvas {
+      display: block;
+      margin: 0 auto;
+      box-shadow: 0 0 5px rgba(0, 0, 0, 0.3);
+    }
+
+    .thumbnail-image {
+      width: 100%;
+      height: 10;
+      max-height: 80px;
+    }
+
+    .sidebar-thumbnail {
+      width: 50%;
+      height: auto;
+    }
+  </style>
+</head>
+<body>
+  <div class="pdf-viewer-container">
+    <!-- Toolbar -->
+    <div id="toolbar">
+      <button id="zoom-out">Zoom Out</button>
+      <button id="zoom-in">Zoom In</button>
+      <button id="prev-page">Previous</button>
+      <button id="next-page">Next</button>
+      <span id="current-page"></span>
+    </div>
+
+    <!-- Container for viewer and sidebar -->
+    <div id="container">
+      <!-- Thumbnail Sidebar -->
+      <div id="sidebar">
+        <ul id="thumbnail-list"></ul>
+      </div>
+
+      <!-- PDF Viewer Container -->
+      <div id="viewer"></div>
+    </div>
+  </div>
+
+  <script src="./build/pdf.js"></script>
+
+  <script src="./build/pdf.worker.js"></script>
+  <script src="./web/viewer.js"></script>
+  <script>
+    // JavaScript code (updated)
+    let base64 = ''; // Provide the base64 encoded PDF data here
+
+    function Base64ToArrayBuffer(base64) {
+      let binary_string = window.atob(base64);
+      let len = binary_string.length;
+      let bytes = new Uint8Array(len);
+      let i = 0;
+      while (i < len) {
+        bytes[i] = binary_string.charCodeAt(i);
+        i++;
+      }
+      return bytes.buffer;
+    }
+
+    let pdfData = new Uint8Array(Base64ToArrayBuffer(base64));
+
+    var loadingTask = pdfjsLib.getDocument(pdfData);
+    var pdf;
+    var currentPage = 1;
+    var totalPages;
+    var currentScale = 1.0;
+    var container = document.getElementById('viewer');
+    var prevButton = document.getElementById('prev-page');
+    var nextButton = document.getElementById('next-page');
+    var zoomOutButton = document.getElementById('zoom-out');
+    var zoomInButton = document.getElementById('zoom-in');
+    var thumbnailList = document.getElementById('thumbnail-list');
+
+    function renderPage(pageNumber) {
+      pdf.getPage(pageNumber).then(function (page) {
+        var viewport = page.getViewport({ scale: currentScale });
+
+        var canvas = document.createElement('canvas');
+        var context = canvas.getContext('2d');
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+
+        var renderContext = {
+          canvasContext: context,
+          viewport: viewport
+        };
+
+        page.render(renderContext).promise.then(function () {
+          container.appendChild(canvas);
+
+          // Update current page number in toolbar
+          document.getElementById('current-page').textContent = 'Page ' + pageNumber + ' of ' + totalPages;
+        });
+      });
+    }
+
+    container.addEventListener('scroll', function () {
+      var viewerHeight = container.clientHeight;
+      var scrolled = container.scrollTop;
+      var pageHeight = totalPages * viewerHeight;
+      var currentPage = Math.ceil(scrolled / viewerHeight) + 1;
+
+      renderPage(currentPage);
+    });
+
+    function renderAllPages() {
+      for (var i = 1; i <= totalPages; i++) {
+        renderPage(i);
+      }
+    }
+
+    function renderThumbnail(pageNumber) {
+      pdf.getPage(pageNumber).then(function (page) {
+        var viewport = page.getViewport({ scale: 0.5 }); // Adjust the scale as needed for the thumbnail size
+
+        var canvas = document.createElement('canvas');
+        var context = canvas.getContext('2d');
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+
+        var renderContext = {
+          canvasContext: context,
+          viewport: viewport
+        };
+
+        page.render(renderContext).promise.then(function () {
+          var thumbnailItem = document.createElement('li');
+          var thumbnailCanvas = document.createElement('canvas');
+          thumbnailCanvas.className = 'sidebar-thumbnail';
+          thumbnailCanvas.width = canvas.width;
+          thumbnailCanvas.height = canvas.height;
+          var thumbnailContext = thumbnailCanvas.getContext('2d');
+          thumbnailContext.drawImage(canvas, 0, 0, canvas.width, canvas.height);
+          thumbnailItem.appendChild(thumbnailCanvas);
+          thumbnailItem.dataset.page = pageNumber; // Set the 'page' dataset attribute
+          thumbnailItem.addEventListener('click', function (e) {
+            var pageNumber = parseInt(e.currentTarget.dataset.page);
+            currentPage = pageNumber;
+            renderPage(currentPage);
+            window.location.hash = 'page=' + pageNumber; // Redirect to the selected page
+          });
+          thumbnailList.appendChild(thumbnailItem);
+        });
+      });
+    }
+
+    function zoomOut() {
+      currentScale = Math.max
+(currentScale / 1.2, 0.25);
+renderAllPages();
+}
+
+
+function zoomIn() {
+  currentScale = Math.min(currentScale * 1.2, 4.0);
+  renderAllPages();
+}
+
+loadingTask.promise.then(function (pdfDocument) {
+  pdf = pdfDocument;
+  totalPages = pdf.numPages;
+
+  // Add thumbnails to the sidebar and render all pages in the viewer
+  for (var i = 1; i <= totalPages; i++) {
+    renderThumbnail(i);
+  }
+
+  // Handle previous and next page buttons
+  prevButton.addEventListener('click', function () {
+    if (currentPage > 1) {
+      currentPage--;
+      renderPage(currentPage);
+    }
+  });
+
+  nextButton.addEventListener('click', function () {
+    if (currentPage < totalPages) {
+      currentPage++;
+      renderPage(currentPage);
+    }
+  });
+
+  // Handle zoom out
+  zoomOutButton.addEventListener('click', zoomOut);
+
+  // Handle zoom in button
+  zoomInButton.addEventListener('click', zoomIn);
+
+  // Handle window resize event
+  window.addEventListener('resize', function () {
+    renderAllPages();
+  });
+
+  // Initial rendering of all pages
+  renderAllPages();
+
+  // Check for page hash in the URL and redirect to the specified page
+  var hash = window.location.hash.substr(1);
+  var page = parseInt(hash.replace('page=', ''));
+  if (!isNaN(page) && page >= 1 && page <= totalPages) {
+    currentPage = page;
+    renderPage(currentPage);
+  }
+});
+
+
+</script>
+</body>
+</html>
